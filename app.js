@@ -23,9 +23,13 @@ const els = {
 };
 
 let stream;
+let activeAnalysisId = 0;
 
 const GEMINI_KEY_STORAGE = "label-lens-gemini-api-key";
 const GEMINI_MODEL_STORAGE = "label-lens-gemini-model";
+const MAX_IMAGE_SIDE = 1600;
+const IMAGE_QUALITY = 0.86;
+const GEMINI_TIMEOUT_MS = 30000;
 
 els.geminiApiKey.value = localStorage.getItem(GEMINI_KEY_STORAGE) || "";
 els.geminiModel.value = localStorage.getItem(GEMINI_MODEL_STORAGE) || "gemini-3-flash-preview";
@@ -73,9 +77,8 @@ function captureAndAnalyze() {
   canvas.width = video.videoWidth || 1280;
   canvas.height = video.videoHeight || 960;
   canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
-  showPreview(dataUrl);
-  analyzeImage(dataUrl);
+  const dataUrl = canvas.toDataURL("image/jpeg", IMAGE_QUALITY);
+  prepareAndAnalyzeImage(dataUrl);
 }
 
 function handleUpload(event) {
@@ -84,10 +87,21 @@ function handleUpload(event) {
 
   const reader = new FileReader();
   reader.onload = () => {
-    showPreview(reader.result);
-    analyzeImage(reader.result);
+    prepareAndAnalyzeImage(reader.result);
   };
   reader.readAsDataURL(file);
+}
+
+async function prepareAndAnalyzeImage(imageSource) {
+  setStatus("正在準備相片...", true);
+  try {
+    const optimizedImage = await optimizeImage(imageSource);
+    showPreview(optimizedImage);
+    analyzeImage(optimizedImage);
+  } catch (error) {
+    showPreview(imageSource);
+    analyzeImage(imageSource);
+  }
 }
 
 function showPreview(src) {
@@ -97,44 +111,57 @@ function showPreview(src) {
 }
 
 async function analyzeImage(imageSource) {
+  const analysisId = ++activeAnalysisId;
+  setAnalyzeBusy(true);
   const apiKey = els.geminiApiKey.value.trim();
-  if (apiKey) {
-    setStatus("正在用 Gemini 分析營養標籤...", true);
-    resetResults();
-    try {
-      const analysis = await analyzeWithGemini(imageSource, apiKey, els.geminiModel.value);
-      renderGeminiAnalysis(analysis);
-      setStatus("Gemini 分析完成。數字始終以包裝標籤為準。", true);
-      return;
-    } catch (error) {
-      els.aiExplanation.textContent = "Gemini 暫時分析唔到，已改用本機 OCR 規則。";
-      setStatus("Gemini 分析失敗，正在改用本機 OCR...", false);
-    }
-  }
-
-  if (!window.Tesseract) {
-    setStatus("OCR 載入中，請等多一秒再試。", false);
-    return;
-  }
-
-  setStatus("正在讀取相片文字...", true);
-  resetResults();
 
   try {
+    if (apiKey) {
+      setStatus("正在用 Gemini 分析營養標籤...", true);
+      resetResults();
+      try {
+        const analysis = await analyzeWithGemini(imageSource, apiKey, els.geminiModel.value);
+        if (!isCurrentAnalysis(analysisId)) return;
+        renderGeminiAnalysis(analysis);
+        setStatus("Gemini 分析完成。數字始終以包裝標籤為準。", true);
+        return;
+      } catch (error) {
+        if (!isCurrentAnalysis(analysisId)) return;
+        els.aiExplanation.textContent = "Gemini 暫時分析唔到，已改用本機 OCR 規則。";
+        setStatus("Gemini 分析失敗，正在改用本機 OCR...", false);
+      }
+    }
+
+    if (!window.Tesseract) {
+      setStatus("OCR 載入中，請等多一秒再試。", false);
+      return;
+    }
+
+    setStatus("正在讀取相片文字...", true);
+    resetResults();
+
     const result = await Tesseract.recognize(imageSource, "eng+chi_tra", {
       logger: (message) => {
+        if (!isCurrentAnalysis(analysisId)) return;
         if (message.status === "recognizing text") {
           setStatus(`正在辨認文字 ${Math.round(message.progress * 100)}%`, true);
         }
       },
     });
+    if (!isCurrentAnalysis(analysisId)) return;
     const text = normalizeText(result.data.text);
     els.ocrText.textContent = text || "未能讀取到清晰文字。";
     const nutrition = parseNutrition(text);
     renderAnalysis(nutrition);
     setStatus("分析完成。數字始終以包裝標籤為準。", true);
   } catch (error) {
-    setStatus("分析失敗。試下用光啲、近啲、對焦清楚啲再影。", false);
+    if (isCurrentAnalysis(analysisId)) {
+      setStatus("分析失敗。試下用光啲、近啲、對焦清楚啲再影。", false);
+    }
+  } finally {
+    if (isCurrentAnalysis(analysisId)) {
+      setAnalyzeBusy(false);
+    }
   }
 }
 
@@ -155,6 +182,28 @@ async function analyzeWithGemini(imageSource, apiKey, selectedModel) {
   throw lastError;
 }
 
+async function optimizeImage(imageSource) {
+  const image = await loadImage(imageSource);
+  const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(image.naturalWidth, image.naturalHeight));
+  const width = Math.max(1, Math.round(image.naturalWidth * scale));
+  const height = Math.max(1, Math.round(image.naturalHeight * scale));
+
+  const canvas = els.snapshot;
+  canvas.width = width;
+  canvas.height = height;
+  canvas.getContext("2d").drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", IMAGE_QUALITY);
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Image failed to load"));
+    image.src = src;
+  });
+}
+
 function dataUrlToGeminiImage(dataUrl) {
   const match = String(dataUrl).match(/^data:(image\/[a-z0-9.+-]+);base64,(.+)$/i);
   if (!match) {
@@ -164,10 +213,13 @@ function dataUrlToGeminiImage(dataUrl) {
 }
 
 async function requestGeminiAnalysis({ apiKey, model, base64, mimeType }) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
       method: "POST",
+      signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         "x-goog-api-key": apiKey,
@@ -194,7 +246,7 @@ async function requestGeminiAnalysis({ apiKey, model, base64, mimeType }) {
         },
       }),
     },
-  );
+  ).finally(() => window.clearTimeout(timeoutId));
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -235,8 +287,17 @@ function buildGeminiPrompt() {
 }
 
 function parseGeminiJson(text) {
-  const cleaned = text.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
-  return JSON.parse(cleaned);
+  const cleaned = text
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const jsonStart = cleaned.indexOf("{");
+  const jsonEnd = cleaned.lastIndexOf("}");
+  if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+    throw new Error("Gemini returned invalid JSON");
+  }
+  return JSON.parse(cleaned.slice(jsonStart, jsonEnd + 1));
 }
 
 function normalizeText(text) {
@@ -336,6 +397,17 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function isCurrentAnalysis(analysisId) {
+  return analysisId === activeAnalysisId;
+}
+
+function setAnalyzeBusy(isBusy) {
+  els.capturePhoto.disabled = isBusy || !els.camera.srcObject;
+  els.imageUpload.disabled = isBusy;
+  els.geminiApiKey.disabled = isBusy;
+  els.geminiModel.disabled = isBusy;
 }
 
 function calculateScore(n) {
