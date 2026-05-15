@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f766e" />
+    <title>Label Lens 營養標籤分析</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="scanner-panel" aria-label="營養標籤掃描器">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Label Lens</p>
+            <h1>影一影營養標籤，即刻睇得明</h1>
+          </div>
+          <div class="score-pill" id="scorePill">未分析</div>
+        </div>
+
+        <div class="camera-frame">
+          <video id="camera" playsinline autoplay muted></video>
+          <canvas id="snapshot" hidden></canvas>
+          <img id="preview" alt="已拍攝的營養標籤" hidden />
+          <div class="scan-guide" aria-hidden="true"></div>
+        </div>
+
+        <div class="controls">
+          <button id="startCamera" type="button">開相機</button>
+          <button id="capturePhoto" type="button" disabled>拍照分析</button>
+          <label class="file-button">
+            上載相片
+            <input id="imageUpload" type="file" accept="image/*" capture="environment" />
+          </label>
+        </div>
+
+        <div class="status-row">
+          <span id="statusDot" class="status-dot"></span>
+          <p id="statusText">準備好後，對準包裝背面營養標籤。</p>
+        </div>
+      </section>
+
+      <section class="results-panel" aria-label="分析結果">
+        <div class="result-header">
+          <div>
+            <p class="eyebrow">分析結果</p>
+            <h2 id="verdictTitle">等你影相</h2>
+          </div>
+          <span id="healthGrade" class="grade">--</span>
+        </div>
+
+        <div class="summary-grid">
+          <article>
+            <span>熱量</span>
+            <strong id="energyValue">--</strong>
+          </article>
+          <article>
+            <span>糖</span>
+            <strong id="sugarValue">--</strong>
+          </article>
+          <article>
+            <span>鈉</span>
+            <strong id="sodiumValue">--</strong>
+          </article>
+          <article>
+            <span>脂肪</span>
+            <strong id="fatValue">--</strong>
+          </article>
+        </div>
+
+        <div class="explain-box">
+          <h3>普通人版本</h3>
+          <p id="plainExplanation">影相後，我會將標籤入面最重要的數字翻譯成容易明白的說法。</p>
+        </div>
+
+        <div class="detail-list" id="detailList"></div>
+
+        <details class="ocr-box">
+          <summary>查看 OCR 原文</summary>
+          <pre id="ocrText">暫時未有文字。</pre>
+        </details>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "Label Lens 營養標籤分析",
+  "short_name": "Label Lens",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#eef5f2",
+  "theme_color": "#0f766e",
+  "icons": []
+}
