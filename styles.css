@@ -136,6 +136,46 @@ video,
   margin-top: 16px;
 }
 
+.api-panel {
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(23, 33, 31, 0.12);
+  border-radius: 8px;
+  background: #fbfdfc;
+}
+
+.api-panel label {
+  display: block;
+  margin-bottom: 8px;
+  color: #17211f;
+  font-weight: 800;
+}
+
+.api-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(150px, 0.42fr);
+  gap: 10px;
+}
+
+.api-row input,
+.api-row select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(23, 33, 31, 0.18);
+  border-radius: 8px;
+  background: white;
+  color: #17211f;
+  font: inherit;
+  padding: 0 12px;
+}
+
+.api-panel p {
+  margin: 8px 0 0;
+  color: #60706c;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
 button,
 .file-button {
   min-height: 46px;
@@ -224,6 +264,11 @@ button:disabled {
   margin-bottom: 14px;
 }
 
+.ai-box {
+  border-color: rgba(15, 118, 110, 0.2);
+  background: #f3fbf8;
+}
+
 .explain-box p {
   margin-bottom: 0;
   line-height: 1.65;
@@ -282,6 +327,10 @@ pre {
   }
 
   .controls {
+    grid-template-columns: 1fr;
+  }
+
+  .api-row {
     grid-template-columns: 1fr;
   }
 }
