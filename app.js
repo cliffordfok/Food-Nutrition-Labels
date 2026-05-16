@@ -32,16 +32,16 @@ const IMAGE_QUALITY = 0.86;
 const GEMINI_TIMEOUT_MS = 30000;
 
 els.geminiApiKey.value = localStorage.getItem(GEMINI_KEY_STORAGE) || "";
-els.geminiModel.value = localStorage.getItem(GEMINI_MODEL_STORAGE) || "gemini-3-flash-preview";
+els.geminiModel.value = localStorage.getItem(GEMINI_MODEL_STORAGE) || "gemini-2.5-flash";
 
 const nutrientPatterns = {
-  energy: /(?:energy|calories|熱量|能量)[^\d]{0,12}(\d+(?:\.\d+)?)\s*(kcal|kj|千卡|卡路里)?/i,
-  sugar: /(?:sugars?|糖)[^\d]{0,12}(\d+(?:\.\d+)?)\s*g/i,
-  sodium: /(?:sodium|鈉)[^\d]{0,12}(\d+(?:\.\d+)?)\s*(mg|毫克|g)?/i,
-  fat: /(?:total\s*fat|fat|脂肪|總脂肪)[^\d]{0,12}(\d+(?:\.\d+)?)\s*g/i,
-  satFat: /(?:saturated|飽和脂肪)[^\d]{0,12}(\d+(?:\.\d+)?)\s*g/i,
-  protein: /(?:protein|蛋白質)[^\d]{0,12}(\d+(?:\.\d+)?)\s*g/i,
-  fiber: /(?:fibre|fiber|膳食纖維|纖維)[^\d]{0,12}(\d+(?:\.\d+)?)\s*g/i,
+  energy: /(?:energy|calories|calorie|熱量|能量)[^\d]{0,16}(\d+(?:\.\d+)?)\s*(kcal|kj|千卡|卡路里)?/i,
+  sugar: /(?:sugars?|糖|糖質)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
+  sodium: /(?:sodium|鈉)[^\d]{0,16}(\d+(?:\.\d+)?)\s*(mg|毫克|g|克)?/i,
+  fat: /(?:total\s*fat|fat|脂肪|總脂肪)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
+  satFat: /(?:saturated|飽和脂肪)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
+  protein: /(?:protein|蛋白質)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
+  fiber: /(?:fibre|fiber|膳食纖維|纖維)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
 };
 
 els.startCamera.addEventListener("click", startCamera);
@@ -57,6 +57,7 @@ els.geminiModel.addEventListener("change", () => {
 async function startCamera() {
   setStatus("正在開啟相機...", true);
   try {
+    stream?.getTracks().forEach((track) => track.stop());
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment" },
       audio: false,
@@ -65,9 +66,9 @@ async function startCamera() {
     els.camera.hidden = false;
     els.preview.hidden = true;
     els.capturePhoto.disabled = false;
-    setStatus("相機已開啟，將營養標籤放入白框內。", true);
+    setStatus("相機已開啟。把營養標籤放入框內，再按拍照分析。", true);
   } catch (error) {
-    setStatus("開唔到相機。你可以改為上載相片。", false);
+    setStatus("無法開啟相機。你仍可改用上傳圖片。", false);
   }
 }
 
@@ -77,8 +78,7 @@ function captureAndAnalyze() {
   canvas.width = video.videoWidth || 1280;
   canvas.height = video.videoHeight || 960;
   canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-  const dataUrl = canvas.toDataURL("image/jpeg", IMAGE_QUALITY);
-  prepareAndAnalyzeImage(dataUrl);
+  prepareAndAnalyzeImage(canvas.toDataURL("image/jpeg", IMAGE_QUALITY));
 }
 
 function handleUpload(event) {
@@ -86,14 +86,12 @@ function handleUpload(event) {
   if (!file) return;
 
   const reader = new FileReader();
-  reader.onload = () => {
-    prepareAndAnalyzeImage(reader.result);
-  };
+  reader.onload = () => prepareAndAnalyzeImage(reader.result);
   reader.readAsDataURL(file);
 }
 
 async function prepareAndAnalyzeImage(imageSource) {
-  setStatus("正在準備相片...", true);
+  setStatus("正在處理圖片...", true);
   try {
     const optimizedImage = await optimizeImage(imageSource);
     showPreview(optimizedImage);
@@ -116,47 +114,46 @@ async function analyzeImage(imageSource) {
   const apiKey = els.geminiApiKey.value.trim();
 
   try {
+    resetResults();
+
     if (apiKey) {
-      setStatus("正在用 Gemini 分析營養標籤...", true);
-      resetResults();
+      setStatus("正在使用 Gemini 分析營養標籤...", true);
       try {
         const analysis = await analyzeWithGemini(imageSource, apiKey, els.geminiModel.value);
         if (!isCurrentAnalysis(analysisId)) return;
         renderGeminiAnalysis(analysis);
-        setStatus("Gemini 分析完成。數字始終以包裝標籤為準。", true);
+        setStatus("Gemini 分析完成。", true);
         return;
       } catch (error) {
         if (!isCurrentAnalysis(analysisId)) return;
-        els.aiExplanation.textContent = "Gemini 暫時分析唔到，已改用本機 OCR 規則。";
-        setStatus("Gemini 分析失敗，正在改用本機 OCR...", false);
+        els.aiExplanation.textContent = "Gemini 分析失敗，已改用瀏覽器 OCR。";
+        setStatus("Gemini 分析失敗，正在改用 OCR...", false);
       }
     }
 
     if (!window.Tesseract) {
-      setStatus("OCR 載入中，請等多一秒再試。", false);
+      setStatus("OCR 套件尚未載入，請稍後再試。", false);
       return;
     }
 
-    setStatus("正在讀取相片文字...", true);
-    resetResults();
-
+    setStatus("正在用 OCR 讀取標籤文字...", true);
     const result = await Tesseract.recognize(imageSource, "eng+chi_tra", {
       logger: (message) => {
         if (!isCurrentAnalysis(analysisId)) return;
         if (message.status === "recognizing text") {
-          setStatus(`正在辨認文字 ${Math.round(message.progress * 100)}%`, true);
+          setStatus(`正在辨識文字 ${Math.round(message.progress * 100)}%`, true);
         }
       },
     });
+
     if (!isCurrentAnalysis(analysisId)) return;
     const text = normalizeText(result.data.text);
-    els.ocrText.textContent = text || "未能讀取到清晰文字。";
-    const nutrition = parseNutrition(text);
-    renderAnalysis(nutrition);
-    setStatus("分析完成。數字始終以包裝標籤為準。", true);
+    els.ocrText.textContent = text || "沒有讀到清楚文字。";
+    renderAnalysis(parseNutrition(text));
+    setStatus("OCR 分析完成。", true);
   } catch (error) {
     if (isCurrentAnalysis(analysisId)) {
-      setStatus("分析失敗。試下用光啲、近啲、對焦清楚啲再影。", false);
+      setStatus("分析失敗。請換一張更清楚、光線更平均的圖片再試。", false);
     }
   } finally {
     if (isCurrentAnalysis(analysisId)) {
@@ -167,7 +164,7 @@ async function analyzeImage(imageSource) {
 
 async function analyzeWithGemini(imageSource, apiKey, selectedModel) {
   const { base64, mimeType } = dataUrlToGeminiImage(imageSource);
-  const modelsToTry = [...new Set([selectedModel, "gemini-3-flash-preview", "gemini-2.5-flash"])];
+  const modelsToTry = [...new Set([selectedModel, "gemini-2.5-flash", "gemini-2.0-flash"])];
   let lastError;
 
   for (const model of modelsToTry) {
@@ -262,27 +259,23 @@ async function requestGeminiAnalysis({ apiKey, model, base64, mimeType }) {
 }
 
 function buildGeminiPrompt() {
-  return `你是一個香港用戶可理解的食品營養標籤分析助手。
-請直接閱讀圖片上的營養標籤，抽取重點數字，並用廣東話白話解釋。
-不要作醫療診斷；如圖片不清楚，請明確指出不確定。
-
-只回傳 JSON，不要 Markdown。格式：
+  return `你是一位食品營養標籤助手。請閱讀圖片中的營養標籤，整理出消費者最需要知道的健康重點。請只回傳 JSON，不要 Markdown。
 {
   "score": 0-100,
   "grade": "A-E",
-  "verdict": "短句，例如：可以，留意份量",
+  "verdict": "一句短評，例如：整體不錯，但鈉偏高",
   "nutrients": {
     "energy": "例如 120kcal 或 --",
     "sugar": "例如 4.5g 或 --",
     "sodium": "例如 300mg 或 --",
     "fat": "例如 8g 或 --"
   },
-  "plainExplanation": "一段普通人明白的廣東話解釋",
+  "plainExplanation": "一段白話說明，約 40-80 字",
   "findings": [
-    {"title": "糖分", "body": "一句分析"},
-    {"title": "鈉質", "body": "一句分析"}
+    {"title": "糖", "body": "一個重點"},
+    {"title": "鈉", "body": "一個重點"}
   ],
-  "labelText": "你讀到的營養標籤文字摘要"
+  "labelText": "你讀到的主要標籤文字"
 }`;
 }
 
@@ -301,9 +294,9 @@ function parseGeminiJson(text) {
 }
 
 function normalizeText(text) {
-  return text
-    .replace(/[：]/g, ":")
-    .replace(/[，]/g, ",")
+  return String(text || "")
+    .replace(/[：:]/g, ":")
+    .replace(/[，,]/g, ",")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -326,7 +319,7 @@ function parseNutrition(text) {
 
 function normalizeUnit(unit, key) {
   if (key === "energy") return /kj/i.test(unit || "") ? "kJ" : "kcal";
-  if (key === "sodium") return /g/i.test(unit || "") ? "g" : "mg";
+  if (key === "sodium") return /g|克/i.test(unit || "") ? "g" : "mg";
   return "g";
 }
 
@@ -343,17 +336,8 @@ function renderAnalysis(nutrition) {
   els.sodiumValue.textContent = formatNutrient(nutrition.sodium);
   els.fatValue.textContent = formatNutrient(nutrition.fat);
   els.plainExplanation.textContent = buildPlainExplanation(score, findings);
-  els.aiExplanation.textContent = "目前使用本機 OCR 規則分析。輸入 Gemini API key 後可改用 Gemini 讀圖分析。";
-  els.detailList.innerHTML = findings
-    .map(
-      (item) => `
-        <article>
-          <strong>${item.title}</strong>
-          <p>${item.body}</p>
-        </article>
-      `,
-    )
-    .join("");
+  els.aiExplanation.textContent = "目前使用瀏覽器 OCR 做初步分析。加入 Gemini API key 後，可獲得更完整的圖像理解結果。";
+  renderFindings(findings);
 }
 
 function renderGeminiAnalysis(analysis) {
@@ -369,9 +353,13 @@ function renderGeminiAnalysis(analysis) {
   els.sugarValue.textContent = nutrients.sugar || "--";
   els.sodiumValue.textContent = nutrients.sodium || "--";
   els.fatValue.textContent = nutrients.fat || "--";
-  els.plainExplanation.textContent = analysis.plainExplanation || "Gemini 已完成分析，但未提供詳細解釋。";
-  els.aiExplanation.textContent = "此結果由 Gemini 直接閱讀相片產生。請用包裝原文覆核關鍵數字。";
-  els.ocrText.textContent = analysis.labelText || "Gemini 未提供標籤文字摘要。";
+  els.plainExplanation.textContent = analysis.plainExplanation || "Gemini 已完成分析，請參考下方重點。";
+  els.aiExplanation.textContent = "已使用 Gemini 直接閱讀圖片並整理營養重點。";
+  els.ocrText.textContent = analysis.labelText || "Gemini 未回傳標籤原文。";
+  renderFindings(findings);
+}
+
+function renderFindings(findings) {
   els.detailList.innerHTML = findings
     .map(
       (item) => `
@@ -441,18 +429,18 @@ function scoreToGrade(score) {
 }
 
 function verdictText(score) {
-  if (score >= 82) return "整體幾健康";
-  if (score >= 68) return "可以，留意份量";
-  if (score >= 52) return "普通，唔好食太多";
-  if (score >= 36) return "偏高負擔";
-  return "建議少食";
+  if (score >= 82) return "整體表現佳";
+  if (score >= 68) return "可以考慮，留意份量";
+  if (score >= 52) return "普通，建議比較同類產品";
+  if (score >= 36) return "需要節制";
+  return "不建議經常食用";
 }
 
 function buildPlainExplanation(score, findings) {
   if (!findings.length) {
-    return "我暫時抽唔到足夠數字。試下影清楚營養成分表，尤其是每 100g 或每份的糖、鈉、脂肪。";
+    return "沒有讀到足夠的營養數字。請確認圖片清晰，並盡量讓每 100g 或每份資料完整入鏡。";
   }
-  const lead = score >= 68 ? "呢款食品整體可以接受。" : "呢款食品要小心份量。";
+  const lead = score >= 68 ? "整體還算可以。" : "這款產品需要多留意。";
   return `${lead}${findings.map((item) => item.body).join(" ")}`;
 }
 
@@ -462,25 +450,25 @@ function buildFindings(n) {
 
   if (n.sugar) {
     findings.push({
-      title: "糖分",
+      title: "糖",
       body:
         n.sugar.value > 22.5
-          ? "糖分屬高，當甜品或零食會比較合理，日日食容易超標。"
+          ? "糖含量偏高，建議只作偶爾食用，並留意一天內其他甜食或飲品。"
           : n.sugar.value > 10
-            ? "糖分中等，飲品或早餐食品要留意同其他食物加埋的總糖。"
-            : "糖分偏低，對控制糖分攝取比較友善。",
+            ? "糖含量中等，份量越大越需要控制。"
+            : "糖含量較低，這是較友善的一項。",
     });
   }
 
   if (sodiumMg !== null) {
     findings.push({
-      title: "鈉質",
+      title: "鈉",
       body:
         sodiumMg > 600
-          ? "鈉質偏高，代表比較鹹，血壓或水腫人士要特別留意。"
+          ? "鈉含量偏高，較容易讓一天的鹽分攝取超標。"
           : sodiumMg > 300
-            ? "鈉質中等，食同一餐其他鹹味食物時要扣返。"
-            : "鈉質偏低，日常選擇上較容易控制鹽分。",
+            ? "鈉含量中等，搭配其他餐點時要避免太鹹。"
+            : "鈉含量較低，對日常控制鹽分比較友善。",
     });
   }
 
@@ -489,22 +477,22 @@ function buildFindings(n) {
       title: "脂肪",
       body:
         n.satFat?.value > 5 || n.fat.value > 17.5
-          ? "脂肪偏高，飽肚但熱量密度高，減脂或控制膽固醇時要留意。"
-          : "脂肪未見特別高，仍要睇整包份量有幾多。",
+          ? "脂肪或飽和脂肪偏高，建議控制份量。"
+          : "脂肪含量不算突出，可再搭配糖和鈉一起判斷。",
     });
   }
 
   if (n.fiber?.value >= 6) {
     findings.push({
       title: "纖維",
-      body: "纖維量幾好，通常會較飽肚，對腸道同血糖穩定有幫助。",
+      body: "纖維含量不錯，有助增加飽足感。",
     });
   }
 
   if (n.protein?.value >= 10) {
     findings.push({
       title: "蛋白質",
-      body: "蛋白質不錯，作為加餐或正餐配搭會比較頂肚。",
+      body: "蛋白質含量較高，對飽足感和日常補充有幫助。",
     });
   }
 
@@ -518,9 +506,14 @@ function formatNutrient(item) {
 
 function resetResults() {
   els.scorePill.textContent = "分析中";
-  els.verdictTitle.textContent = "讀取中";
+  els.verdictTitle.textContent = "正在讀取";
   els.healthGrade.textContent = "--";
-  els.aiExplanation.textContent = "正在分析相片...";
+  els.energyValue.textContent = "--";
+  els.sugarValue.textContent = "--";
+  els.sodiumValue.textContent = "--";
+  els.fatValue.textContent = "--";
+  els.plainExplanation.textContent = "正在整理營養重點...";
+  els.aiExplanation.textContent = "正在分析圖片...";
   els.detailList.innerHTML = "";
 }
 
