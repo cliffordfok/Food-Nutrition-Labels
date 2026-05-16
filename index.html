@@ -16,30 +16,43 @@
         <div class="topbar">
           <div>
             <p class="eyebrow">Label Lens</p>
-            <h1>影一影營養標籤，即刻睇得明</h1>
+            <h1>拍下營養標籤，快速看懂健康重點</h1>
           </div>
-          <div class="score-pill" id="scorePill">未分析</div>
+          <div class="score-pill" id="scorePill">待分析</div>
         </div>
 
         <div class="camera-frame">
           <video id="camera" playsinline autoplay muted></video>
           <canvas id="snapshot" hidden></canvas>
-          <img id="preview" alt="已拍攝的營養標籤" hidden />
+          <img id="preview" alt="已選取的營養標籤" hidden />
           <div class="scan-guide" aria-hidden="true"></div>
         </div>
 
         <div class="controls">
-          <button id="startCamera" type="button">開相機</button>
+          <button id="startCamera" type="button">開啟相機</button>
           <button id="capturePhoto" type="button" disabled>拍照分析</button>
           <label class="file-button">
-            上載相片
+            上傳圖片
             <input id="imageUpload" type="file" accept="image/*" capture="environment" />
           </label>
         </div>
 
+        <details class="api-panel">
+          <summary>Gemini 分析設定</summary>
+          <label for="geminiApiKey">Gemini API key</label>
+          <div class="api-row">
+            <input id="geminiApiKey" type="password" autocomplete="off" placeholder="AIza..." />
+            <select id="geminiModel" aria-label="Gemini model">
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+            </select>
+          </div>
+          <p>API key 只會儲存在這部瀏覽器的 localStorage，不會寫入 GitHub repository。</p>
+        </details>
+
         <div class="status-row">
           <span id="statusDot" class="status-dot"></span>
-          <p id="statusText">準備好後，對準包裝背面營養標籤。</p>
+          <p id="statusText">準備好了。請拍照或上傳一張清楚的營養標籤。</p>
         </div>
       </section>
 
@@ -47,7 +60,7 @@
         <div class="result-header">
           <div>
             <p class="eyebrow">分析結果</p>
-            <h2 id="verdictTitle">等你影相</h2>
+            <h2 id="verdictTitle">等待圖片</h2>
           </div>
           <span id="healthGrade" class="grade">--</span>
         </div>
@@ -72,15 +85,20 @@
         </div>
 
         <div class="explain-box">
-          <h3>普通人版本</h3>
-          <p id="plainExplanation">影相後，我會將標籤入面最重要的數字翻譯成容易明白的說法。</p>
+          <h3>白話重點</h3>
+          <p id="plainExplanation">分析完成後，這裡會用簡單文字說明糖、鈉、脂肪和熱量的重點。</p>
+        </div>
+
+        <div class="explain-box ai-box">
+          <h3>Gemini 分析</h3>
+          <p id="aiExplanation">輸入 Gemini API key 後可使用 Gemini 圖像分析；沒有 key 時會改用瀏覽器 OCR。</p>
         </div>
 
         <div class="detail-list" id="detailList"></div>
 
         <details class="ocr-box">
-          <summary>查看 OCR 原文</summary>
-          <pre id="ocrText">暫時未有文字。</pre>
+          <summary>查看 OCR 文字</summary>
+          <pre id="ocrText">尚未讀取文字。</pre>
         </details>
       </section>
     </main>
