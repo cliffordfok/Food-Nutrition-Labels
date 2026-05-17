@@ -347,14 +347,45 @@ button:disabled {
   background: #f3fbf8;
 }
 
+.advice-box {
+  border-color: rgba(191, 95, 53, 0.22);
+  background: #fff8f3;
+}
+
 .explain-box p {
   margin-bottom: 0;
   line-height: 1.65;
 }
 
+.advice-box p + p {
+  margin-top: 10px;
+  color: #4a5b57;
+}
+
 .detail-list {
   display: grid;
   gap: 10px;
+}
+
+.term-list {
+  display: grid;
+  gap: 10px;
+}
+
+.term-list article {
+  padding: 12px;
+  border: 1px solid rgba(23, 33, 31, 0.1);
+  border-radius: 8px;
+  background: white;
+}
+
+.term-list strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.term-list p {
+  color: #4a5b57;
 }
 
 .detail-list article {
@@ -543,6 +574,7 @@ pre {
   }
 
   .explain-box,
+  .term-list article,
   .detail-list article,
   .ocr-box {
     padding: 12px;
@@ -553,6 +585,7 @@ pre {
   }
 
   .explain-box p,
+  .term-list p,
   .detail-list p {
     line-height: 1.55;
   }

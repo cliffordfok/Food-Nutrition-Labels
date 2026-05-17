@@ -22,6 +22,9 @@ const els = {
   sodiumValue: document.querySelector("#sodiumValue"),
   fatValue: document.querySelector("#fatValue"),
   plainExplanation: document.querySelector("#plainExplanation"),
+  sharpAssessment: document.querySelector("#sharpAssessment"),
+  overallAdvice: document.querySelector("#overallAdvice"),
+  glossaryList: document.querySelector("#glossaryList"),
   aiExplanation: document.querySelector("#aiExplanation"),
   detailList: document.querySelector("#detailList"),
   ocrText: document.querySelector("#ocrText"),
@@ -49,6 +52,59 @@ const nutrientPatterns = {
   protein: /(?:protein|蛋白質)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
   fiber: /(?:fibre|fiber|膳食纖維|纖維)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
 };
+
+const glossaryTerms = [
+  {
+    pattern: /energy|calories|calorie|熱量|能量/i,
+    term: "熱量 / Calories",
+    meaning: "代表這件食物會提供幾多能量。太高而又不飽肚，通常容易令每日總攝取超標。",
+  },
+  {
+    pattern: /sugars?|糖|糖質/i,
+    term: "糖",
+    meaning: "不只是砂糖，也包括食物中容易快速吸收的糖。高糖產品不適合經常食或大份量食。",
+  },
+  {
+    pattern: /sodium|鈉/i,
+    term: "鈉",
+    meaning: "鈉基本上就是鹽分指標。鈉高即代表偏鹹，對血壓和水腫控制不友善。",
+  },
+  {
+    pattern: /total\s*fat|fat|脂肪|總脂肪/i,
+    term: "總脂肪",
+    meaning: "脂肪本身不是壞事，但高脂食品熱量密度通常高，容易不知不覺食多。",
+  },
+  {
+    pattern: /saturated|飽和脂肪/i,
+    term: "飽和脂肪",
+    meaning: "較需要控制的一類脂肪。長期攝取太多，對心血管健康不理想。",
+  },
+  {
+    pattern: /protein|蛋白質/i,
+    term: "蛋白質",
+    meaning: "幫助飽肚和維持肌肉。零食如果蛋白質低，通常營養價值也有限。",
+  },
+  {
+    pattern: /fibre|fiber|膳食纖維|纖維/i,
+    term: "膳食纖維",
+    meaning: "有助飽肚和腸道健康。纖維高通常是比較加分的訊號。",
+  },
+  {
+    pattern: /carbohydrate|碳水|碳水化合物/i,
+    term: "碳水化合物",
+    meaning: "身體主要能量來源。要留意當中有多少是糖，以及整體熱量是否合理。",
+  },
+  {
+    pattern: /serving|per serving|每份|食用分量/i,
+    term: "每份 / Serving",
+    meaning: "廠商定義的一份，不一定等於你實際會食的份量。比較產品時要看清楚基準。",
+  },
+  {
+    pattern: /per 100g|每100克|每 100 克|每100毫升|每 100 毫升/i,
+    term: "每 100g / 100ml",
+    meaning: "最適合用來比較不同產品，因為份量基準一致。",
+  },
+];
 
 els.startCamera.addEventListener("click", startCamera);
 els.capturePhoto.addEventListener("click", capturePhoto);
@@ -240,7 +296,7 @@ async function analyzeSelectedPhotos() {
     if (!isCurrentAnalysis(analysisId)) return;
     const text = normalizeText(textParts.join("\n\n"));
     els.ocrText.textContent = text || "沒有讀到清楚文字。";
-    renderAnalysis(parseNutrition(text));
+    renderAnalysis(parseNutrition(text), text);
     setStatus("OCR 多張圖片分析完成。", true);
   } catch (error) {
     if (isCurrentAnalysis(analysisId)) {
@@ -346,18 +402,31 @@ async function requestGeminiAnalysis({ apiKey, model, images }) {
 }
 
 function buildGeminiPrompt(imageCount) {
-  return `你是一位食品營養標籤助手。使用者提供了 ${imageCount} 張圖片，可能是同一個長標籤的不同位置。請把所有圖片合併閱讀，不要把重複欄位重複計算。請只回傳 JSON，不要 Markdown。
+  return `你是一位直接但負責任的食品營養標籤助手。使用者提供了 ${imageCount} 張圖片，可能是同一個長標籤的不同位置。請把所有圖片合併閱讀，不要把重複欄位重複計算。
+
+請做三件事：
+1. 分析營養價值，包括糖、鈉、脂肪、熱量和任何明顯優缺點。
+2. 把標籤中一般人可能不懂的詞彙翻譯成白話意思，例如鈉、飽和脂肪、每份、每100g、碳水、添加糖、膳食纖維、蛋白質或任何添加劑名稱。
+3. 用尖銳但不恐嚇的語氣給整體評估和建議。要直接講這款產品值不值得買、可否經常食、比較適合甚麼情況。
+
+請只回傳 JSON，不要 Markdown。文字使用繁體中文／香港口吻。
 {
   "score": 0-100,
   "grade": "A-E",
-  "verdict": "一句短評，例如：整體不錯，但鈉偏高",
+  "verdict": "一句短評，例如：糖和鈉都偏高，不值得當日常零食",
   "nutrients": {
     "energy": "例如 120kcal 或 --",
     "sugar": "例如 4.5g 或 --",
     "sodium": "例如 300mg 或 --",
     "fat": "例如 8g 或 --"
   },
-  "plainExplanation": "一段白話說明，約 40-80 字",
+  "plainExplanation": "一段白話營養重點，約 40-80 字",
+  "sharpAssessment": "尖銳總評，直接講好壞和值不值得食",
+  "overallAdvice": "具體建議，例如食用頻率、份量、適合或不適合的人",
+  "glossary": [
+    {"term": "鈉", "meaning": "普通人聽得明的意思"},
+    {"term": "飽和脂肪", "meaning": "普通人聽得明的意思"}
+  ],
   "findings": [
     {"title": "糖", "body": "一個重點"},
     {"title": "鈉", "body": "一個重點"}
@@ -410,10 +479,11 @@ function normalizeUnit(unit, key) {
   return "g";
 }
 
-function renderAnalysis(nutrition) {
+function renderAnalysis(nutrition, labelText = "") {
   const score = calculateScore(nutrition);
   const grade = scoreToGrade(score);
   const findings = buildFindings(nutrition);
+  const glossary = buildGlossary(labelText, nutrition);
 
   els.scorePill.textContent = `${score}/100`;
   els.healthGrade.textContent = grade;
@@ -423,7 +493,10 @@ function renderAnalysis(nutrition) {
   els.sodiumValue.textContent = formatNutrient(nutrition.sodium);
   els.fatValue.textContent = formatNutrient(nutrition.fat);
   els.plainExplanation.textContent = buildPlainExplanation(score, findings);
-  els.aiExplanation.textContent = "目前使用瀏覽器 OCR 做初步分析。加入 Gemini API key 後，可獲得更完整的多圖像理解結果。";
+  els.sharpAssessment.textContent = buildSharpAssessment(score, nutrition);
+  els.overallAdvice.textContent = buildOverallAdvice(score, nutrition);
+  els.aiExplanation.textContent = "目前使用瀏覽器 OCR 做初步分析。加入 Gemini API key 後，可獲得更完整的多圖像理解和詞彙解釋。";
+  renderGlossary(glossary);
   renderFindings(findings);
 }
 
@@ -432,6 +505,7 @@ function renderGeminiAnalysis(analysis) {
   const score = clampScore(analysis.score);
   const grade = /^[A-E]$/.test(analysis.grade || "") ? analysis.grade : scoreToGrade(score);
   const findings = Array.isArray(analysis.findings) ? analysis.findings : [];
+  const glossary = Array.isArray(analysis.glossary) ? analysis.glossary : [];
 
   els.scorePill.textContent = `${score}/100`;
   els.healthGrade.textContent = grade;
@@ -441,9 +515,29 @@ function renderGeminiAnalysis(analysis) {
   els.sodiumValue.textContent = nutrients.sodium || "--";
   els.fatValue.textContent = nutrients.fat || "--";
   els.plainExplanation.textContent = analysis.plainExplanation || "Gemini 已完成分析，請參考下方重點。";
-  els.aiExplanation.textContent = "已使用 Gemini 合併閱讀所有圖片並整理營養重點。";
+  els.sharpAssessment.textContent = analysis.sharpAssessment || buildSharpAssessment(score, {});
+  els.overallAdvice.textContent = analysis.overallAdvice || buildOverallAdvice(score, {});
+  els.aiExplanation.textContent = "已使用 Gemini 合併閱讀所有圖片，並整理營養重點、詞彙翻譯和整體建議。";
   els.ocrText.textContent = analysis.labelText || "Gemini 未回傳標籤原文。";
+  renderGlossary(glossary);
   renderFindings(findings);
+}
+
+function renderGlossary(glossary) {
+  const items = glossary.length
+    ? glossary
+    : [{ term: "未找到明顯艱深詞彙", meaning: "如果標籤文字較清楚，Gemini 或 OCR 會在這裡解釋營養詞彙。" }];
+
+  els.glossaryList.innerHTML = items
+    .map(
+      (item) => `
+        <article>
+          <strong>${escapeHtml(item.term || "詞彙")}</strong>
+          <p>${escapeHtml(item.meaning || "")}</p>
+        </article>
+      `,
+    )
+    .join("");
 }
 
 function renderFindings(findings) {
@@ -457,6 +551,14 @@ function renderFindings(findings) {
       `,
     )
     .join("");
+}
+
+function buildGlossary(text, nutrition) {
+  const matched = glossaryTerms.filter((item) => item.pattern.test(text));
+  if (!matched.length && Object.values(nutrition).some(Boolean)) {
+    return glossaryTerms.slice(0, 5).map(({ term, meaning }) => ({ term, meaning }));
+  }
+  return matched.map(({ term, meaning }) => ({ term, meaning }));
 }
 
 function clampScore(value) {
@@ -535,6 +637,32 @@ function buildPlainExplanation(score, findings) {
   return `${lead}${findings.map((item) => item.body).join(" ")}`;
 }
 
+function buildSharpAssessment(score, nutrition) {
+  const sodiumMg = nutrition.sodium ? (nutrition.sodium.unit === "g" ? nutrition.sodium.value * 1000 : nutrition.sodium.value) : null;
+  const sugarHigh = nutrition.sugar?.value > 10;
+  const sodiumHigh = sodiumMg > 300;
+  const fatHigh = nutrition.fat?.value > 17.5 || nutrition.satFat?.value > 5;
+
+  if (score >= 82) return "這款算是標籤上比較乾淨的一類，不是神奇健康食品，但不用過份戒備。";
+  if (score >= 68) return "可以食，但不要被包裝上的健康感騙到；它仍然要按份量控制。";
+  if (score >= 52) return "營養價值普通，沒有差到要避開，但也不值得因為它而特別買。";
+  if (sugarHigh && sodiumHigh) return "糖和鈉同時偏高，這種組合最麻煩：容易好食、也容易食過量。";
+  if (fatHigh) return "脂肪表現拖後腿，當日常零食不太划算。";
+  return "整體營養價值偏弱，想食可以，但不要安慰自己它很健康。";
+}
+
+function buildOverallAdvice(score, nutrition) {
+  const sodiumMg = nutrition.sodium ? (nutrition.sodium.unit === "g" ? nutrition.sodium.value * 1000 : nutrition.sodium.value) : null;
+  const cautions = [];
+  if (nutrition.sugar?.value > 10) cautions.push("糖");
+  if (sodiumMg > 300) cautions.push("鈉");
+  if (nutrition.fat?.value > 17.5 || nutrition.satFat?.value > 5) cautions.push("脂肪");
+
+  if (!cautions.length && score >= 68) return "可作日常選項之一，但仍建議看清楚每份大小，不要因為分數不錯就加倍食。";
+  if (score >= 52) return `建議偶爾食，重點控制份量。需要留意的是${cautions.join("、") || "整體熱量"}。`;
+  return `建議當作偶爾想食的選擇，不建議每日食。特別要留意${cautions.join("、") || "熱量和份量"}。`;
+}
+
 function buildFindings(n) {
   const findings = [];
   const sodiumMg = n.sodium ? (n.sodium.unit === "g" ? n.sodium.value * 1000 : n.sodium.value) : null;
@@ -596,7 +724,7 @@ function formatNutrient(item) {
 }
 
 function resetResults() {
-  els.scorePill.textContent = selectedPhotos.length ? "待分析" : "待分析";
+  els.scorePill.textContent = "待分析";
   els.verdictTitle.textContent = selectedPhotos.length ? "等待分析" : "等待圖片";
   els.healthGrade.textContent = "--";
   els.energyValue.textContent = "--";
@@ -606,6 +734,9 @@ function resetResults() {
   els.plainExplanation.textContent = selectedPhotos.length
     ? "已加入圖片。按「分析已選圖片」後會整理營養重點。"
     : "分析完成後，這裡會用簡單文字說明糖、鈉、脂肪和熱量的重點。";
+  els.sharpAssessment.textContent = "未分析前不作判斷。完成後會直接指出這款產品值不值得經常食。";
+  els.overallAdvice.textContent = "建議會按營養價值、份量和適合食用頻率整理。";
+  renderGlossary([]);
   els.aiExplanation.textContent = "輸入 Gemini API key 後可使用 Gemini 圖像分析；沒有 key 時會改用瀏覽器 OCR。";
   els.detailList.innerHTML = "";
 }
