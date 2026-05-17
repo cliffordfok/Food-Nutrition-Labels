@@ -24,17 +24,28 @@
         <div class="camera-frame">
           <video id="camera" playsinline autoplay muted></video>
           <canvas id="snapshot" hidden></canvas>
-          <img id="preview" alt="已選取的營養標籤" hidden />
+          <img id="preview" alt="已加入的營養標籤" hidden />
           <div class="scan-guide" aria-hidden="true"></div>
         </div>
 
         <div class="controls">
           <button id="startCamera" type="button">開啟相機</button>
-          <button id="capturePhoto" type="button" disabled>拍照分析</button>
+          <button id="capturePhoto" type="button" disabled>拍一張</button>
+          <button id="stopCamera" type="button" disabled>關閉相機</button>
           <label class="file-button">
             上傳圖片
-            <input id="imageUpload" type="file" accept="image/*" capture="environment" />
+            <input id="imageUpload" type="file" accept="image/*" capture="environment" multiple />
           </label>
+          <button id="analyzePhotos" type="button" disabled>分析已選圖片</button>
+          <button id="clearPhotos" type="button" disabled>清除圖片</button>
+        </div>
+
+        <div class="photo-queue" aria-live="polite">
+          <div class="queue-header">
+            <strong id="photoCount">未加入圖片</strong>
+            <span>可拍攝或上傳多張同一個標籤的不同位置</span>
+          </div>
+          <div class="photo-list" id="photoList"></div>
         </div>
 
         <details class="api-panel">

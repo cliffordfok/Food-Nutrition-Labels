@@ -4,7 +4,12 @@ const els = {
   preview: document.querySelector("#preview"),
   startCamera: document.querySelector("#startCamera"),
   capturePhoto: document.querySelector("#capturePhoto"),
+  stopCamera: document.querySelector("#stopCamera"),
   imageUpload: document.querySelector("#imageUpload"),
+  analyzePhotos: document.querySelector("#analyzePhotos"),
+  clearPhotos: document.querySelector("#clearPhotos"),
+  photoCount: document.querySelector("#photoCount"),
+  photoList: document.querySelector("#photoList"),
   geminiApiKey: document.querySelector("#geminiApiKey"),
   geminiModel: document.querySelector("#geminiModel"),
   statusText: document.querySelector("#statusText"),
@@ -23,6 +28,7 @@ const els = {
 };
 
 let stream;
+let selectedPhotos = [];
 let activeAnalysisId = 0;
 
 const GEMINI_KEY_STORAGE = "label-lens-gemini-api-key";
@@ -45,8 +51,14 @@ const nutrientPatterns = {
 };
 
 els.startCamera.addEventListener("click", startCamera);
-els.capturePhoto.addEventListener("click", captureAndAnalyze);
+els.capturePhoto.addEventListener("click", capturePhoto);
+els.stopCamera.addEventListener("click", () => {
+  stopCamera();
+  setStatus("相機已關閉。你可以再開相機拍下一張，或直接分析已選圖片。", false);
+});
 els.imageUpload.addEventListener("change", handleUpload);
+els.analyzePhotos.addEventListener("click", analyzeSelectedPhotos);
+els.clearPhotos.addEventListener("click", clearPhotos);
 els.geminiApiKey.addEventListener("input", () => {
   localStorage.setItem(GEMINI_KEY_STORAGE, els.geminiApiKey.value.trim());
 });
@@ -57,7 +69,7 @@ els.geminiModel.addEventListener("change", () => {
 async function startCamera() {
   setStatus("正在開啟相機...", true);
   try {
-    stream?.getTracks().forEach((track) => track.stop());
+    stopCamera({ silent: true });
     stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: "environment" },
       audio: false,
@@ -66,63 +78,137 @@ async function startCamera() {
     els.camera.hidden = false;
     els.preview.hidden = true;
     els.capturePhoto.disabled = false;
-    setStatus("相機已開啟。把營養標籤放入框內，再按拍照分析。", true);
+    els.stopCamera.disabled = false;
+    setStatus("相機已開啟。拍一張後相機會自動關閉，你可以再開相機拍下一張。", true);
   } catch (error) {
     setStatus("無法開啟相機。你仍可改用上傳圖片。", false);
   }
 }
 
-function captureAndAnalyze() {
+function stopCamera(options = {}) {
+  stream?.getTracks().forEach((track) => track.stop());
+  stream = undefined;
+  els.camera.srcObject = null;
+  els.capturePhoto.disabled = true;
+  els.stopCamera.disabled = true;
+  if (!options.silent) {
+    els.camera.hidden = true;
+    showLatestPreview();
+  }
+}
+
+async function capturePhoto() {
   const canvas = els.snapshot;
   const video = els.camera;
   canvas.width = video.videoWidth || 1280;
   canvas.height = video.videoHeight || 960;
   canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-  prepareAndAnalyzeImage(canvas.toDataURL("image/jpeg", IMAGE_QUALITY));
+  const dataUrl = canvas.toDataURL("image/jpeg", IMAGE_QUALITY);
+  stopCamera({ silent: true });
+  await addPhoto(dataUrl, "相機");
+  setStatus("已加入 1 張相機圖片，相機已關閉。可再開相機拍下一張，或按分析。", false);
 }
 
-function handleUpload(event) {
-  const file = event.target.files?.[0];
-  if (!file) return;
+async function handleUpload(event) {
+  const files = [...(event.target.files || [])];
+  if (!files.length) return;
 
-  const reader = new FileReader();
-  reader.onload = () => prepareAndAnalyzeImage(reader.result);
-  reader.readAsDataURL(file);
-}
-
-async function prepareAndAnalyzeImage(imageSource) {
-  setStatus("正在處理圖片...", true);
+  setStatus(`正在加入 ${files.length} 張圖片...`, true);
   try {
-    const optimizedImage = await optimizeImage(imageSource);
-    showPreview(optimizedImage);
-    analyzeImage(optimizedImage);
+    for (const file of files) {
+      const dataUrl = await readFileAsDataUrl(file);
+      await addPhoto(dataUrl, "上傳");
+    }
+    setStatus(`已加入 ${files.length} 張圖片。可繼續加入，或按分析已選圖片。`, false);
   } catch (error) {
-    showPreview(imageSource);
-    analyzeImage(imageSource);
+    setStatus("有圖片無法讀取，請再試一次。", false);
+  } finally {
+    els.imageUpload.value = "";
   }
 }
 
-function showPreview(src) {
-  els.preview.src = src;
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error("Image failed to load"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addPhoto(imageSource, source) {
+  const optimizedImage = await optimizeImage(imageSource).catch(() => imageSource);
+  selectedPhotos.push({
+    id: crypto.randomUUID(),
+    src: optimizedImage,
+    source,
+  });
+  showLatestPreview();
+  renderPhotoQueue();
+}
+
+function showLatestPreview() {
+  const latest = selectedPhotos.at(-1);
+  if (!latest) {
+    els.preview.hidden = true;
+    els.preview.removeAttribute("src");
+    return;
+  }
+
+  els.preview.src = latest.src;
   els.preview.hidden = false;
   els.camera.hidden = true;
 }
 
-async function analyzeImage(imageSource) {
+function renderPhotoQueue() {
+  const count = selectedPhotos.length;
+  els.photoCount.textContent = count ? `已加入 ${count} 張圖片` : "未加入圖片";
+  els.analyzePhotos.disabled = !count;
+  els.clearPhotos.disabled = !count;
+  els.photoList.innerHTML = selectedPhotos
+    .map(
+      (photo, index) => `
+        <article class="photo-thumb">
+          <img src="${photo.src}" alt="標籤圖片 ${index + 1}" />
+          <span>${photo.source} ${index + 1}</span>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function clearPhotos() {
+  selectedPhotos = [];
+  activeAnalysisId += 1;
+  renderPhotoQueue();
+  showLatestPreview();
+  resetResults();
+  setStatus("已清除所有圖片。", false);
+}
+
+async function analyzeSelectedPhotos() {
+  if (!selectedPhotos.length) {
+    setStatus("請先拍照或上傳至少一張圖片。", false);
+    return;
+  }
+
   const analysisId = ++activeAnalysisId;
   setAnalyzeBusy(true);
-  const apiKey = els.geminiApiKey.value.trim();
+  resetResults();
+  els.scorePill.textContent = "分析中";
+  els.verdictTitle.textContent = "正在讀取";
 
   try {
-    resetResults();
+    const images = selectedPhotos.map((photo) => photo.src);
+    const apiKey = els.geminiApiKey.value.trim();
 
     if (apiKey) {
-      setStatus("正在使用 Gemini 分析營養標籤...", true);
+      setStatus(`正在使用 Gemini 分析 ${images.length} 張圖片...`, true);
       try {
-        const analysis = await analyzeWithGemini(imageSource, apiKey, els.geminiModel.value);
+        const analysis = await analyzeWithGemini(images, apiKey, els.geminiModel.value);
         if (!isCurrentAnalysis(analysisId)) return;
         renderGeminiAnalysis(analysis);
-        setStatus("Gemini 分析完成。", true);
+        setStatus("Gemini 多張圖片分析完成。", true);
         return;
       } catch (error) {
         if (!isCurrentAnalysis(analysisId)) return;
@@ -132,28 +218,33 @@ async function analyzeImage(imageSource) {
     }
 
     if (!window.Tesseract) {
-      setStatus("OCR 套件尚未載入，請稍後再試。", false);
+      setStatus("OCR 套件尚未載入，請稍後再試，或輸入 Gemini API key。", false);
       return;
     }
 
-    setStatus("正在用 OCR 讀取標籤文字...", true);
-    const result = await Tesseract.recognize(imageSource, "eng+chi_tra", {
-      logger: (message) => {
-        if (!isCurrentAnalysis(analysisId)) return;
-        if (message.status === "recognizing text") {
-          setStatus(`正在辨識文字 ${Math.round(message.progress * 100)}%`, true);
-        }
-      },
-    });
+    const textParts = [];
+    for (const [index, image] of images.entries()) {
+      if (!isCurrentAnalysis(analysisId)) return;
+      setStatus(`正在用 OCR 讀取第 ${index + 1}/${images.length} 張圖片...`, true);
+      const result = await Tesseract.recognize(image, "eng+chi_tra", {
+        logger: (message) => {
+          if (!isCurrentAnalysis(analysisId)) return;
+          if (message.status === "recognizing text") {
+            setStatus(`第 ${index + 1}/${images.length} 張辨識中 ${Math.round(message.progress * 100)}%`, true);
+          }
+        },
+      });
+      textParts.push(`圖片 ${index + 1}:\n${result.data.text}`);
+    }
 
     if (!isCurrentAnalysis(analysisId)) return;
-    const text = normalizeText(result.data.text);
+    const text = normalizeText(textParts.join("\n\n"));
     els.ocrText.textContent = text || "沒有讀到清楚文字。";
     renderAnalysis(parseNutrition(text));
-    setStatus("OCR 分析完成。", true);
+    setStatus("OCR 多張圖片分析完成。", true);
   } catch (error) {
     if (isCurrentAnalysis(analysisId)) {
-      setStatus("分析失敗。請換一張更清楚、光線更平均的圖片再試。", false);
+      setStatus("分析失敗。請換更清楚、光線更平均的圖片再試。", false);
     }
   } finally {
     if (isCurrentAnalysis(analysisId)) {
@@ -162,14 +253,14 @@ async function analyzeImage(imageSource) {
   }
 }
 
-async function analyzeWithGemini(imageSource, apiKey, selectedModel) {
-  const { base64, mimeType } = dataUrlToGeminiImage(imageSource);
+async function analyzeWithGemini(imageSources, apiKey, selectedModel) {
+  const images = imageSources.map(dataUrlToGeminiImage);
   const modelsToTry = [...new Set([selectedModel, "gemini-2.5-flash", "gemini-2.0-flash"])];
   let lastError;
 
   for (const model of modelsToTry) {
     try {
-      return await requestGeminiAnalysis({ apiKey, model, base64, mimeType });
+      return await requestGeminiAnalysis({ apiKey, model, images });
     } catch (error) {
       lastError = error;
       if (!String(error.message || "").includes("404")) break;
@@ -209,9 +300,15 @@ function dataUrlToGeminiImage(dataUrl) {
   return { mimeType: match[1], base64: match[2] };
 }
 
-async function requestGeminiAnalysis({ apiKey, model, base64, mimeType }) {
+async function requestGeminiAnalysis({ apiKey, model, images }) {
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  const imageParts = images.map(({ base64, mimeType }) => ({
+    inline_data: {
+      mime_type: mimeType,
+      data: base64,
+    },
+  }));
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
     {
@@ -224,17 +321,7 @@ async function requestGeminiAnalysis({ apiKey, model, base64, mimeType }) {
       body: JSON.stringify({
         contents: [
           {
-            parts: [
-              {
-                inline_data: {
-                  mime_type: mimeType,
-                  data: base64,
-                },
-              },
-              {
-                text: buildGeminiPrompt(),
-              },
-            ],
+            parts: [...imageParts, { text: buildGeminiPrompt(images.length) }],
           },
         ],
         generationConfig: {
@@ -258,8 +345,8 @@ async function requestGeminiAnalysis({ apiKey, model, base64, mimeType }) {
   return parseGeminiJson(text);
 }
 
-function buildGeminiPrompt() {
-  return `你是一位食品營養標籤助手。請閱讀圖片中的營養標籤，整理出消費者最需要知道的健康重點。請只回傳 JSON，不要 Markdown。
+function buildGeminiPrompt(imageCount) {
+  return `你是一位食品營養標籤助手。使用者提供了 ${imageCount} 張圖片，可能是同一個長標籤的不同位置。請把所有圖片合併閱讀，不要把重複欄位重複計算。請只回傳 JSON，不要 Markdown。
 {
   "score": 0-100,
   "grade": "A-E",
@@ -336,7 +423,7 @@ function renderAnalysis(nutrition) {
   els.sodiumValue.textContent = formatNutrient(nutrition.sodium);
   els.fatValue.textContent = formatNutrient(nutrition.fat);
   els.plainExplanation.textContent = buildPlainExplanation(score, findings);
-  els.aiExplanation.textContent = "目前使用瀏覽器 OCR 做初步分析。加入 Gemini API key 後，可獲得更完整的圖像理解結果。";
+  els.aiExplanation.textContent = "目前使用瀏覽器 OCR 做初步分析。加入 Gemini API key 後，可獲得更完整的多圖像理解結果。";
   renderFindings(findings);
 }
 
@@ -354,7 +441,7 @@ function renderGeminiAnalysis(analysis) {
   els.sodiumValue.textContent = nutrients.sodium || "--";
   els.fatValue.textContent = nutrients.fat || "--";
   els.plainExplanation.textContent = analysis.plainExplanation || "Gemini 已完成分析，請參考下方重點。";
-  els.aiExplanation.textContent = "已使用 Gemini 直接閱讀圖片並整理營養重點。";
+  els.aiExplanation.textContent = "已使用 Gemini 合併閱讀所有圖片並整理營養重點。";
   els.ocrText.textContent = analysis.labelText || "Gemini 未回傳標籤原文。";
   renderFindings(findings);
 }
@@ -392,8 +479,12 @@ function isCurrentAnalysis(analysisId) {
 }
 
 function setAnalyzeBusy(isBusy) {
-  els.capturePhoto.disabled = isBusy || !els.camera.srcObject;
+  els.startCamera.disabled = isBusy;
+  els.capturePhoto.disabled = isBusy || !stream;
+  els.stopCamera.disabled = isBusy || !stream;
   els.imageUpload.disabled = isBusy;
+  els.analyzePhotos.disabled = isBusy || !selectedPhotos.length;
+  els.clearPhotos.disabled = isBusy || !selectedPhotos.length;
   els.geminiApiKey.disabled = isBusy;
   els.geminiModel.disabled = isBusy;
 }
@@ -505,15 +596,17 @@ function formatNutrient(item) {
 }
 
 function resetResults() {
-  els.scorePill.textContent = "分析中";
-  els.verdictTitle.textContent = "正在讀取";
+  els.scorePill.textContent = selectedPhotos.length ? "待分析" : "待分析";
+  els.verdictTitle.textContent = selectedPhotos.length ? "等待分析" : "等待圖片";
   els.healthGrade.textContent = "--";
   els.energyValue.textContent = "--";
   els.sugarValue.textContent = "--";
   els.sodiumValue.textContent = "--";
   els.fatValue.textContent = "--";
-  els.plainExplanation.textContent = "正在整理營養重點...";
-  els.aiExplanation.textContent = "正在分析圖片...";
+  els.plainExplanation.textContent = selectedPhotos.length
+    ? "已加入圖片。按「分析已選圖片」後會整理營養重點。"
+    : "分析完成後，這裡會用簡單文字說明糖、鈉、脂肪和熱量的重點。";
+  els.aiExplanation.textContent = "輸入 Gemini API key 後可使用 Gemini 圖像分析；沒有 key 時會改用瀏覽器 OCR。";
   els.detailList.innerHTML = "";
 }
 
