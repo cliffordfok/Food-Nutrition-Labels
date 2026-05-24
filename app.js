@@ -39,19 +39,11 @@ const GEMINI_MODEL_STORAGE = "label-lens-gemini-model";
 const MAX_IMAGE_SIDE = 1600;
 const IMAGE_QUALITY = 0.86;
 const GEMINI_TIMEOUT_MS = 30000;
+const MAX_PHOTOS = 6;
+const nutritionParser = window.NutritionParser;
 
 els.geminiApiKey.value = localStorage.getItem(GEMINI_KEY_STORAGE) || "";
 els.geminiModel.value = localStorage.getItem(GEMINI_MODEL_STORAGE) || "gemini-2.5-flash";
-
-const nutrientPatterns = {
-  energy: /(?:energy|calories|calorie|熱量|能量)[^\d]{0,16}(\d+(?:\.\d+)?)\s*(kcal|kj|千卡|卡路里)?/i,
-  sugar: /(?:sugars?|糖|糖質)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
-  sodium: /(?:sodium|鈉)[^\d]{0,16}(\d+(?:\.\d+)?)\s*(mg|毫克|g|克)?/i,
-  fat: /(?:total\s*fat|fat|脂肪|總脂肪)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
-  satFat: /(?:saturated|飽和脂肪)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
-  protein: /(?:protein|蛋白質)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
-  fiber: /(?:fibre|fiber|膳食纖維|纖維)[^\d]{0,16}(\d+(?:\.\d+)?)\s*g/i,
-};
 
 const glossaryTerms = [
   {
@@ -154,6 +146,12 @@ function stopCamera(options = {}) {
 }
 
 async function capturePhoto() {
+  if (selectedPhotos.length >= MAX_PHOTOS) {
+    setStatus(`最多只能加入 ${MAX_PHOTOS} 張圖片。請先分析或清除圖片。`, false);
+    stopCamera();
+    return;
+  }
+
   const canvas = els.snapshot;
   const video = els.camera;
   canvas.width = video.videoWidth || 1280;
@@ -168,6 +166,17 @@ async function capturePhoto() {
 async function handleUpload(event) {
   const files = [...(event.target.files || [])];
   if (!files.length) return;
+  const remainingSlots = MAX_PHOTOS - selectedPhotos.length;
+  if (remainingSlots <= 0) {
+    setStatus(`最多只能加入 ${MAX_PHOTOS} 張圖片。請先分析或清除圖片。`, false);
+    els.imageUpload.value = "";
+    return;
+  }
+  if (files.length > remainingSlots) {
+    setStatus(`最多只能加入 ${MAX_PHOTOS} 張圖片。你還可以再加入 ${remainingSlots} 張。`, false);
+    els.imageUpload.value = "";
+    return;
+  }
 
   setStatus(`正在加入 ${files.length} 張圖片...`, true);
   try {
@@ -193,6 +202,9 @@ function readFileAsDataUrl(file) {
 }
 
 async function addPhoto(imageSource, source) {
+  if (selectedPhotos.length >= MAX_PHOTOS) {
+    throw new Error("Too many images");
+  }
   const optimizedImage = await optimizeImage(imageSource).catch(() => imageSource);
   selectedPhotos.push({
     id: crypto.randomUUID(),
@@ -218,7 +230,7 @@ function showLatestPreview() {
 
 function renderPhotoQueue() {
   const count = selectedPhotos.length;
-  els.photoCount.textContent = count ? `已加入 ${count} 張圖片` : "未加入圖片";
+  els.photoCount.textContent = count ? `已加入 ${count}/${MAX_PHOTOS} 張圖片` : "未加入圖片";
   els.analyzePhotos.disabled = !count;
   els.clearPhotos.disabled = !count;
   els.photoList.innerHTML = selectedPhotos
@@ -458,25 +470,7 @@ function normalizeText(text) {
 }
 
 function parseNutrition(text) {
-  return Object.fromEntries(
-    Object.entries(nutrientPatterns).map(([key, pattern]) => {
-      const match = text.match(pattern);
-      if (!match) return [key, null];
-      return [
-        key,
-        {
-          value: Number.parseFloat(match[1]),
-          unit: normalizeUnit(match[2], key),
-        },
-      ];
-    }),
-  );
-}
-
-function normalizeUnit(unit, key) {
-  if (key === "energy") return /kj/i.test(unit || "") ? "kJ" : "kcal";
-  if (key === "sodium") return /g|克/i.test(unit || "") ? "g" : "mg";
-  return "g";
+  return nutritionParser.parseNutrition(text);
 }
 
 function renderAnalysis(nutrition, labelText = "") {
@@ -492,7 +486,7 @@ function renderAnalysis(nutrition, labelText = "") {
   els.sugarValue.textContent = formatNutrient(nutrition.sugar);
   els.sodiumValue.textContent = formatNutrient(nutrition.sodium);
   els.fatValue.textContent = formatNutrient(nutrition.fat);
-  els.plainExplanation.textContent = buildPlainExplanation(score, findings);
+  els.plainExplanation.textContent = [buildPlainExplanation(score, findings), nutrition.basisWarning].filter(Boolean).join(" ");
   els.sharpAssessment.textContent = buildSharpAssessment(score, nutrition);
   els.overallAdvice.textContent = buildOverallAdvice(score, nutrition);
   els.aiExplanation.textContent = "目前使用瀏覽器 OCR 做初步分析。加入 Gemini API key 後，可獲得更完整的多圖像理解和詞彙解釋。";
