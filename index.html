@@ -8,6 +8,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="styles.css" />
     <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+    <script defer src="nutrition.js"></script>
     <script defer src="app.js"></script>
   </head>
   <body>
@@ -43,7 +44,7 @@
         <div class="photo-queue" aria-live="polite">
           <div class="queue-header">
             <strong id="photoCount">未加入圖片</strong>
-            <span>可拍攝或上傳多張同一個標籤的不同位置</span>
+            <span>最多 6 張，可拍攝或上傳同一個標籤的不同位置</span>
           </div>
           <div class="photo-list" id="photoList"></div>
         </div>
@@ -58,7 +59,10 @@
               <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
             </select>
           </div>
-          <p>API key 只會儲存在這部瀏覽器的 localStorage，不會寫入 GitHub repository。</p>
+          <p>
+            API key 只會儲存在這部瀏覽器的 localStorage，不會寫入 GitHub repository。不過前端使用 API key
+            時，key 仍會出現在你自己瀏覽器送出的請求中；建議只使用已限制來源、配額或用途的 API key。
+          </p>
         </details>
 
         <div class="status-row">

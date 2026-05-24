@@ -1,0 +1,30 @@
+name: Basic checks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check JavaScript syntax
+        run: |
+          node --check nutrition.js
+          node --check app.js
+          node --check tests/parseNutrition.test.js
+          node --check tests/staticChecks.js
+
+      - name: Run parser tests
+        run: node tests/parseNutrition.test.js
+
+      - name: Run static checks
+        run: node tests/staticChecks.js
