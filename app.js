@@ -39,6 +39,7 @@ const GEMINI_MODEL_STORAGE = "label-lens-gemini-model";
 const MAX_IMAGE_SIDE = 1600;
 const IMAGE_QUALITY = 0.86;
 const GEMINI_TIMEOUT_MS = 30000;
+const DEEPSEEK_TIMEOUT_MS = 30000;
 
 els.geminiApiKey.value = localStorage.getItem(GEMINI_KEY_STORAGE) || "";
 els.geminiModel.value = localStorage.getItem(GEMINI_MODEL_STORAGE) || "gemini-2.5-flash";
@@ -257,13 +258,14 @@ async function analyzeSelectedPhotos() {
   try {
     const images = selectedPhotos.map((photo) => photo.src);
     const apiKey = els.geminiApiKey.value.trim();
+    const selectedModel = els.geminiModel.value;
 
-    if (apiKey) {
+    if (apiKey && !isDeepSeekModel(selectedModel)) {
       setStatus(`正在使用 Gemini 分析 ${images.length} 張圖片...`, true);
       try {
-        const analysis = await analyzeWithGemini(images, apiKey, els.geminiModel.value);
+        const analysis = await analyzeWithGemini(images, apiKey, selectedModel);
         if (!isCurrentAnalysis(analysisId)) return;
-        renderGeminiAnalysis(analysis);
+        renderAiAnalysis(analysis);
         setStatus("Gemini 多張圖片分析完成。", true);
         return;
       } catch (error) {
@@ -296,6 +298,20 @@ async function analyzeSelectedPhotos() {
     if (!isCurrentAnalysis(analysisId)) return;
     const text = normalizeText(textParts.join("\n\n"));
     els.ocrText.textContent = text || "沒有讀到清楚文字。";
+    if (apiKey && isDeepSeekModel(selectedModel)) {
+      setStatus(`正在使用 ${modelDisplayName(selectedModel)} 分析 OCR 文字...`, true);
+      try {
+        const analysis = await analyzeWithDeepSeek(text, apiKey, selectedModel);
+        if (!isCurrentAnalysis(analysisId)) return;
+        renderAiAnalysis(analysis);
+        setStatus(`${modelDisplayName(selectedModel)} OCR 文字分析完成。`, true);
+        return;
+      } catch (error) {
+        if (!isCurrentAnalysis(analysisId)) return;
+        els.aiExplanation.textContent = "DeepSeek 分析失敗，已保留瀏覽器 OCR 初步分析。";
+        setStatus("DeepSeek 分析失敗，已改用 OCR 初步分析。", false);
+      }
+    }
     renderAnalysis(parseNutrition(text), text);
     setStatus("OCR 多張圖片分析完成。", true);
   } catch (error) {
@@ -324,6 +340,24 @@ async function analyzeWithGemini(imageSources, apiKey, selectedModel) {
   }
 
   throw lastError;
+}
+
+async function analyzeWithDeepSeek(labelText, apiKey, selectedModel) {
+  return requestDeepSeekAnalysis({
+    apiKey,
+    model: selectedModel,
+    labelText,
+  });
+}
+
+function isDeepSeekModel(model) {
+  return String(model || "").startsWith("deepseek-");
+}
+
+function modelDisplayName(model) {
+  if (model === "deepseek-v4-pro") return "DeepSeek V4 Pro";
+  if (model === "deepseek-v4-flash") return "DeepSeek V4 Flash";
+  return model || "AI";
 }
 
 async function optimizeImage(imageSource) {
@@ -401,6 +435,42 @@ async function requestGeminiAnalysis({ apiKey, model, images }) {
   return parseGeminiJson(text);
 }
 
+async function requestDeepSeekAnalysis({ apiKey, model, labelText }) {
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), DEEPSEEK_TIMEOUT_MS);
+  const response = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    signal: controller.signal,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model,
+      messages: [
+        {
+          role: "user",
+          content: buildDeepSeekPrompt(labelText),
+        },
+      ],
+      temperature: 0.2,
+      response_format: { type: "json_object" },
+    }),
+  }).finally(() => window.clearTimeout(timeoutId));
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error?.message || `DeepSeek request failed: ${response.status}`);
+  }
+
+  const text = payload.choices?.[0]?.message?.content?.trim();
+  if (!text) {
+    throw new Error("DeepSeek returned no analysis text");
+  }
+
+  return parseGeminiJson(text);
+}
+
 function buildGeminiPrompt(imageCount) {
   return `你是一位直接但負責任的食品營養標籤助手。使用者提供了 ${imageCount} 張圖片，可能是同一個長標籤的不同位置。請把所有圖片合併閱讀，不要把重複欄位重複計算。
 
@@ -432,6 +502,43 @@ function buildGeminiPrompt(imageCount) {
     {"title": "鈉", "body": "一個重點"}
   ],
   "labelText": "你讀到的主要標籤文字"
+}`;
+}
+
+function buildDeepSeekPrompt(labelText) {
+  return `你是一位直接但負責任的食品營養標籤助手。以下是瀏覽器 OCR 從食品營養標籤讀出的文字，可能有錯字、漏字或順序混亂。請根據文字做分析，無法確認的欄位請用 "--"，不要編造數字。
+
+OCR 文字：
+${labelText}
+
+請做三件事：
+1. 分析營養價值，包括糖、鈉、脂肪、熱量和任何明顯優缺點。
+2. 把標籤中一般人可能不懂的詞彙翻譯成白話意思。
+3. 用尖銳但不恐嚇的語氣給整體評估和建議。要直接講這款產品值不值得買、可否經常食、比較適合甚麼情況。
+
+請只回傳 JSON，不要 Markdown。文字使用繁體中文／香港口吻。
+{
+  "score": 0-100,
+  "grade": "A-E",
+  "verdict": "一句短評，例如：糖和鈉都偏高，不值得當日常零食",
+  "nutrients": {
+    "energy": "例如 120kcal 或 --",
+    "sugar": "例如 4.5g 或 --",
+    "sodium": "例如 300mg 或 --",
+    "fat": "例如 8g 或 --"
+  },
+  "plainExplanation": "一段白話營養重點，約 40-80 字",
+  "sharpAssessment": "尖銳總評，直接講好壞和值不值得食",
+  "overallAdvice": "具體建議，例如食用頻率、份量、適合或不適合的人",
+  "glossary": [
+    {"term": "鈉", "meaning": "普通人聽得明的意思"},
+    {"term": "飽和脂肪", "meaning": "普通人聽得明的意思"}
+  ],
+  "findings": [
+    {"title": "糖", "body": "一個重點"},
+    {"title": "鈉", "body": "一個重點"}
+  ],
+  "labelText": "整理後的主要標籤文字"
 }`;
 }
 
@@ -500,7 +607,7 @@ function renderAnalysis(nutrition, labelText = "") {
   renderFindings(findings);
 }
 
-function renderGeminiAnalysis(analysis) {
+function renderAiAnalysis(analysis) {
   const nutrients = analysis.nutrients || {};
   const score = clampScore(analysis.score);
   const grade = /^[A-E]$/.test(analysis.grade || "") ? analysis.grade : scoreToGrade(score);
@@ -517,7 +624,7 @@ function renderGeminiAnalysis(analysis) {
   els.plainExplanation.textContent = analysis.plainExplanation || "Gemini 已完成分析，請參考下方重點。";
   els.sharpAssessment.textContent = analysis.sharpAssessment || buildSharpAssessment(score, {});
   els.overallAdvice.textContent = analysis.overallAdvice || buildOverallAdvice(score, {});
-  els.aiExplanation.textContent = "已使用 Gemini 合併閱讀所有圖片，並整理營養重點、詞彙翻譯和整體建議。";
+  els.aiExplanation.textContent = "已使用所選 AI 模型整理營養重點、詞彙翻譯和整體建議。";
   els.ocrText.textContent = analysis.labelText || "Gemini 未回傳標籤原文。";
   renderGlossary(glossary);
   renderFindings(findings);
@@ -526,7 +633,7 @@ function renderGeminiAnalysis(analysis) {
 function renderGlossary(glossary) {
   const items = glossary.length
     ? glossary
-    : [{ term: "未找到明顯艱深詞彙", meaning: "如果標籤文字較清楚，Gemini 或 OCR 會在這裡解釋營養詞彙。" }];
+    : [{ term: "未找到明顯艱深詞彙", meaning: "如果標籤文字較清楚，AI 或 OCR 會在這裡解釋營養詞彙。" }];
 
   els.glossaryList.innerHTML = items
     .map(
@@ -737,7 +844,7 @@ function resetResults() {
   els.sharpAssessment.textContent = "未分析前不作判斷。完成後會直接指出這款產品值不值得經常食。";
   els.overallAdvice.textContent = "建議會按營養價值、份量和適合食用頻率整理。";
   renderGlossary([]);
-  els.aiExplanation.textContent = "輸入 Gemini API key 後可使用 Gemini 圖像分析；沒有 key 時會改用瀏覽器 OCR。";
+  els.aiExplanation.textContent = "選擇 Gemini 可直接分析圖片；選擇 DeepSeek 會先 OCR，再分析文字。沒有 key 時會改用瀏覽器 OCR。";
   els.detailList.innerHTML = "";
 }
 
