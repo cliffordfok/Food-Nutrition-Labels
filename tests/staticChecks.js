@@ -13,6 +13,7 @@ assert.match(html, /API key[\s\S]*localStorage/);
 assert.match(html, /value="gemini-3\.5-flash"/);
 assert.doesNotMatch(html, /value="gemini-2\.[05]-flash"/);
 assert.match(app, /DEFAULT_GEMINI_MODEL = "gemini-3\.5-flash"/);
+assert.doesNotMatch(app, /"gemini-2\.[05]-flash"/);
 assert.match(html, /限制來源、配額或用途/);
 
 const openBraces = (css.match(/{/g) || []).length;

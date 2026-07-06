@@ -37,7 +37,7 @@ let activeAnalysisId = 0;
 const GEMINI_KEY_STORAGE = "label-lens-gemini-api-key";
 const GEMINI_MODEL_STORAGE = "label-lens-gemini-model";
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
-const LEGACY_GEMINI_FLASH_MODELS = new Set(["gemini-2.5-flash", "gemini-2.0-flash"]);
+const LEGACY_GEMINI_FLASH_MODEL_PATTERN = /^gemini-2\.[05]-flash$/;
 const MAX_IMAGE_SIDE = 1600;
 const IMAGE_QUALITY = 0.86;
 const GEMINI_TIMEOUT_MS = 30000;
@@ -47,7 +47,7 @@ const nutritionParser = window.NutritionParser;
 
 els.geminiApiKey.value = localStorage.getItem(GEMINI_KEY_STORAGE) || "";
 const storedModel = localStorage.getItem(GEMINI_MODEL_STORAGE);
-const selectedStoredModel = LEGACY_GEMINI_FLASH_MODELS.has(storedModel)
+const selectedStoredModel = LEGACY_GEMINI_FLASH_MODEL_PATTERN.test(storedModel)
   ? DEFAULT_GEMINI_MODEL
   : storedModel || DEFAULT_GEMINI_MODEL;
 els.geminiModel.value = selectedStoredModel;
@@ -346,21 +346,11 @@ async function analyzeSelectedPhotos() {
 
 async function analyzeWithGemini(imageSources, apiKey, selectedModel) {
   const images = imageSources.map(dataUrlToGeminiImage);
-  const modelsToTry = [
-    ...new Set([selectedModel, DEFAULT_GEMINI_MODEL, "gemini-2.5-flash", "gemini-2.0-flash"]),
-  ];
-  let lastError;
-
-  for (const model of modelsToTry) {
-    try {
-      return await requestGeminiAnalysis({ apiKey, model, images });
-    } catch (error) {
-      lastError = error;
-      if (!String(error.message || "").includes("404")) break;
-    }
-  }
-
-  throw lastError;
+  return requestGeminiAnalysis({
+    apiKey,
+    model: selectedModel || DEFAULT_GEMINI_MODEL,
+    images,
+  });
 }
 
 async function analyzeWithDeepSeek(labelText, apiKey, selectedModel) {
