@@ -334,6 +334,7 @@ async function analyzeSelectedPhotos() {
     const images = selectedPhotos.map((photo) => photo.src);
     const apiKey = els.geminiApiKey.value.trim();
     const selectedModel = els.geminiModel.value;
+    let fallbackNotice = "";
 
     if (apiKey && !isDeepSeekModel(selectedModel)) {
       setStatus(`正在使用 Gemini 分析 ${images.length} 張圖片...`, true);
@@ -345,8 +346,9 @@ async function analyzeSelectedPhotos() {
         return;
       } catch (error) {
         if (!isCurrentAnalysis(analysisId)) return;
-        els.aiExplanation.textContent = `Gemini 3.5 Flash 分析失敗：${formatAiError(error)}。已改用瀏覽器 OCR。`;
-        setStatus(`Gemini 3.5 Flash 分析失敗：${formatAiError(error)}`, false);
+        fallbackNotice = `Gemini 3.5 Flash 分析失敗：${formatAiError(error)}`;
+        els.aiExplanation.textContent = `${fallbackNotice}。已改用瀏覽器 OCR。`;
+        setStatus(fallbackNotice, false);
       }
     }
 
@@ -383,12 +385,18 @@ async function analyzeSelectedPhotos() {
         return;
       } catch (error) {
         if (!isCurrentAnalysis(analysisId)) return;
-        els.aiExplanation.textContent = "DeepSeek 分析失敗，已保留瀏覽器 OCR 初步分析。";
-        setStatus("DeepSeek 分析失敗，已改用 OCR 初步分析。", false);
+        fallbackNotice = `DeepSeek 分析失敗：${formatAiError(error)}`;
+        els.aiExplanation.textContent = `${fallbackNotice}。已保留瀏覽器 OCR 初步分析。`;
+        setStatus(fallbackNotice, false);
       }
     }
     renderAnalysis(parseNutrition(text), text);
-    setStatus("OCR 多張圖片分析完成。", true);
+    if (fallbackNotice) {
+      els.aiExplanation.textContent = `${fallbackNotice}。已改用瀏覽器 OCR 完成初步分析。`;
+      setStatus(`${fallbackNotice}。OCR 初步分析完成。`, false);
+    } else {
+      setStatus("OCR 多張圖片分析完成。", true);
+    }
   } catch (error) {
     if (isCurrentAnalysis(analysisId)) {
       setStatus("分析失敗。請換更清楚、光線更平均的圖片再試。", false);

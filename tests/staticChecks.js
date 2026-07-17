@@ -18,6 +18,8 @@ assert.match(app, /const GEMINI_ANALYSIS_SCHEMA = {/);
 assert.match(app, /responseFormat:\s*{/);
 assert.match(app, /mimeType: "application\/json"/);
 assert.doesNotMatch(app, /response_mime_type/);
+assert.match(app, /let fallbackNotice = ""/);
+assert.match(app, /OCR 初步分析完成/);
 assert.match(html, /限制來源、配額或用途/);
 
 const openBraces = (css.match(/{/g) || []).length;
