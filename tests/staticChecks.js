@@ -14,6 +14,10 @@ assert.match(html, /value="gemini-3\.5-flash"/);
 assert.doesNotMatch(html, /value="gemini-2\.[05]-flash"/);
 assert.match(app, /DEFAULT_GEMINI_MODEL = "gemini-3\.5-flash"/);
 assert.doesNotMatch(app, /"gemini-2\.[05]-flash"/);
+assert.match(app, /const GEMINI_ANALYSIS_SCHEMA = {/);
+assert.match(app, /responseFormat:\s*{/);
+assert.match(app, /mimeType: "application\/json"/);
+assert.doesNotMatch(app, /response_mime_type/);
 assert.match(html, /限制來源、配額或用途/);
 
 const openBraces = (css.match(/{/g) || []).length;

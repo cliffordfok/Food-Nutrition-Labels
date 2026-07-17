@@ -44,6 +44,62 @@ const GEMINI_TIMEOUT_MS = 30000;
 const DEEPSEEK_TIMEOUT_MS = 30000;
 const MAX_PHOTOS = 6;
 const nutritionParser = window.NutritionParser;
+const GEMINI_ANALYSIS_SCHEMA = {
+  type: "object",
+  properties: {
+    score: { type: "integer" },
+    grade: { type: "string" },
+    verdict: { type: "string" },
+    nutrients: {
+      type: "object",
+      properties: {
+        energy: { type: "string" },
+        sugar: { type: "string" },
+        sodium: { type: "string" },
+        fat: { type: "string" },
+      },
+      required: ["energy", "sugar", "sodium", "fat"],
+    },
+    plainExplanation: { type: "string" },
+    sharpAssessment: { type: "string" },
+    overallAdvice: { type: "string" },
+    glossary: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          term: { type: "string" },
+          meaning: { type: "string" },
+        },
+        required: ["term", "meaning"],
+      },
+    },
+    findings: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          body: { type: "string" },
+        },
+        required: ["title", "body"],
+      },
+    },
+    labelText: { type: "string" },
+  },
+  required: [
+    "score",
+    "grade",
+    "verdict",
+    "nutrients",
+    "plainExplanation",
+    "sharpAssessment",
+    "overallAdvice",
+    "glossary",
+    "findings",
+    "labelText",
+  ],
+};
 
 els.geminiApiKey.value = localStorage.getItem(GEMINI_KEY_STORAGE) || "";
 const storedModel = localStorage.getItem(GEMINI_MODEL_STORAGE);
@@ -289,8 +345,8 @@ async function analyzeSelectedPhotos() {
         return;
       } catch (error) {
         if (!isCurrentAnalysis(analysisId)) return;
-        els.aiExplanation.textContent = "Gemini 分析失敗，已改用瀏覽器 OCR。";
-        setStatus("Gemini 分析失敗，正在改用 OCR...", false);
+        els.aiExplanation.textContent = `Gemini 3.5 Flash 分析失敗：${formatAiError(error)}。已改用瀏覽器 OCR。`;
+        setStatus(`Gemini 3.5 Flash 分析失敗：${formatAiError(error)}`, false);
       }
     }
 
@@ -427,7 +483,12 @@ async function requestGeminiAnalysis({ apiKey, model, images }) {
         ],
         generationConfig: {
           temperature: 0.2,
-          response_mime_type: "application/json",
+          responseFormat: {
+            text: {
+              mimeType: "application/json",
+              schema: GEMINI_ANALYSIS_SCHEMA,
+            },
+          },
         },
       }),
     },
@@ -444,6 +505,11 @@ async function requestGeminiAnalysis({ apiKey, model, images }) {
   }
 
   return parseGeminiJson(text);
+}
+
+function formatAiError(error) {
+  const message = String(error?.message || error || "Unknown error").trim();
+  return message.length > 180 ? `${message.slice(0, 177)}...` : message;
 }
 
 async function requestDeepSeekAnalysis({ apiKey, model, labelText }) {
