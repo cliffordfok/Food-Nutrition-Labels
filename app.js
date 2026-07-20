@@ -493,7 +493,7 @@ async function requestGeminiAnalysis({ apiKey, model, images }) {
           temperature: 0.2,
           responseFormat: {
             text: {
-              mimeType: "application/json",
+              mimeType: "APPLICATION_JSON",
               schema: GEMINI_ANALYSIS_SCHEMA,
             },
           },
